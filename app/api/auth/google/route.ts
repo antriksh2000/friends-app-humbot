@@ -1,6 +1,7 @@
 import { getUsersCollection } from "../../../lib/mongodb";
 import { verifyIdToken } from "../../../lib/firebaseAdmin";
 import type { UserDoc } from "../../../lib/types";
+import { signSession, makeSessionCookie } from "../../../lib/auth";
 
 export async function POST(req: Request) {
   try {
@@ -18,6 +19,8 @@ export async function POST(req: Request) {
 
     const uid = decoded.uid as string;
     const email = (decoded.email as string | undefined) || undefined;
+    const name = (decoded.name as string | undefined) || undefined;
+    const picture = (decoded.picture as string | undefined) || undefined;
     if (!uid) return new Response(JSON.stringify({ error: 'Invalid token payload' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
 
     const users = await getUsersCollection();
@@ -40,12 +43,28 @@ export async function POST(req: Request) {
       }
 
       const now = Date.now();
-      const insertRes = await users.insertOne({ email: email || null, provider: 'google', providerId: uid, createdAt: now, passwordHash: null, resetTokenHash: null, resetTokenExpires: null } as UserDoc);
+      const insertRes = await users.insertOne({ email: email || null, provider: 'google', providerId: uid, displayName: name || null, avatarUrl: picture || null, createdAt: now, passwordHash: null, resetTokenHash: null, resetTokenExpires: null } as UserDoc);
       user = await users.findOne({ _id: insertRes.insertedId }) as UserDoc | null;
+    } else {
+      // Update displayName/avatar if changed
+      const updates: any = {};
+      if (name && name !== user.displayName) updates.displayName = name;
+      if (picture && picture !== user.avatarUrl) updates.avatarUrl = picture;
+      if (Object.keys(updates).length) {
+        await users.updateOne({ _id: user._id }, { $set: updates });
+        user = await users.findOne({ _id: user._id }) as UserDoc | null;
+      }
     }
 
-    // TODO: Set session/JWT in production
-    return new Response(JSON.stringify({ success: true, user: { id: user?._id, email: user?.email, provider: user?.provider } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    if (!user) {
+      return new Response(JSON.stringify({ error: 'Could not create or retrieve user' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
+
+    const userId = user._id.toString();
+    const token = signSession({ uid: userId, email: user.email || undefined });
+    const cookie = makeSessionCookie(token);
+
+    return new Response(JSON.stringify({ success: true, user: { id: userId, email: user.email, provider: user.provider } }), { status: 200, headers: { 'Content-Type': 'application/json', 'Set-Cookie': cookie } });
   } catch (err) {
     console.error('google auth error', err);
     return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
