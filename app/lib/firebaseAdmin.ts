@@ -12,6 +12,8 @@ function parseServiceAccountFromEnv(): any | null {
   }
 }
 
+
+//testing antriksh
 function buildServiceAccountFromParts(): any | null {
   const privateKeyRaw = process.env.FIREBASE_PRIVATE_KEY;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
