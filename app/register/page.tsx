@@ -22,9 +22,17 @@ export default function RegisterPage(): JSX.Element {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const data = await res.json();
-      if (!res.ok) setMessage(data?.error || "Registration failed");
-      else setMessage("Registered successfully. You can now log in.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data?.error || "Registration failed");
+      } else {
+        // If API returns created user info, show it; otherwise generic success
+        if (res.status === 201 && data?.user) {
+          setMessage(`Registered successfully: ${JSON.stringify(data.user)}`);
+        } else {
+          setMessage("Registered successfully. You can now log in.");
+        }
+      }
     } catch (err) {
       setMessage("Network error");
     } finally {
