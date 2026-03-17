@@ -3,210 +3,320 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import styles from "../dashboard.module.css";
 
-type DashboardUser = {
+interface DashboardUser {
   id?: string;
   name?: string;
   avatarUrl?: string;
   email?: string;
   notificationCount?: number | null;
-};
+}
 
-const PANELS = [
+const panels = [
   { key: "overview", title: "Overview" },
   { key: "activity", title: "Activity" },
   { key: "settings", title: "Settings" },
 ];
 
 export default function SwipePanels({ user }: { user: DashboardUser }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const trackRef = useRef<HTMLDivElement | null>(null);
+
   const [currentIndex, setCurrentIndex] = useState<number>(() => {
     try {
-      const raw = localStorage.getItem("dashboard:lastPanel");
-      const n = raw ? parseInt(raw, 10) : 0;
-      if (Number.isFinite(n)) return Math.max(0, Math.min(n, PANELS.length - 1));
-    } catch {}
-    return 0;
+      const raw = typeof window !== "undefined" ? localStorage.getItem("dashboard:lastPanel") : null;
+      if (!raw) return 0;
+      const n = parseInt(raw, 10);
+      if (Number.isNaN(n)) return 0;
+      return Math.max(0, Math.min(n, panels.length - 1));
+    } catch (e) {
+      return 0;
+    }
   });
 
   const [isAnimating, setIsAnimating] = useState(false);
-  const [panelLoading, setPanelLoading] = useState<Record<string, boolean>>({});
-  const [panelError, setPanelError] = useState<Record<string, boolean>>({});
+  const [panelLoading, setPanelLoading] = useState<Record<string, boolean>>(() => {
+    const obj: Record<string, boolean> = {};
+    panels.forEach(p => (obj[p.key] = false));
+    return obj;
+  });
+  const [panelError, setPanelError] = useState<Record<string, boolean>>(() => {
+    const obj: Record<string, boolean> = {};
+    panels.forEach(p => (obj[p.key] = false));
+    return obj;
+  });
 
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const trackRef = useRef<HTMLDivElement | null>(null);
-  const startXRef = useRef<number | null>(null);
-  const lastTranslateRef = useRef<number>(0); // percent offset applied during drag
-  const draggingRef = useRef(false);
-  const timeoutRefs = useRef<Record<string, number>>({});
-
+  const startX = useRef<number | null>(null);
+  const lastTranslate = useRef(0);
+  const dragging = useRef(false);
   const prefersReducedMotion = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+  // Persist index
   useEffect(() => {
-    // load current panel
-    loadPanel(PANELS[currentIndex].key);
-    // persist
     try {
       localStorage.setItem("dashboard:lastPanel", String(currentIndex));
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIndex]);
-
-  useEffect(() => {
-    return () => {
-      // cleanup timeouts
-      Object.values(timeoutRefs.current).forEach((id) => clearTimeout(id));
-    };
-  }, []);
-
-  function loadPanel(key: string) {
-    setPanelError((s) => ({ ...s, [key]: false }));
-    setPanelLoading((s) => ({ ...s, [key]: true }));
-    // deterministic: Math.random() < 0.0 -> no errors by default
-    const t = window.setTimeout(() => {
-      const willError = Math.random() < 0.0;
-      setPanelLoading((s) => ({ ...s, [key]: false }));
-      if (willError) setPanelError((s) => ({ ...s, [key]: true }));
-    }, 600 + Math.floor(Math.random() * 300));
-    timeoutRefs.current[key] = t;
-  }
-
-  const goToIndex = useCallback((next: number) => {
-    if (isAnimating || next === currentIndex) return;
-    const clamped = Math.max(0, Math.min(next, PANELS.length - 1));
-    setIsAnimating(true);
-    setCurrentIndex(clamped);
-    // animation end handled via transitionend listener
-  }, [currentIndex, isAnimating]);
-
-  useEffect(() => {
-    const el = trackRef.current;
-    if (!el) return;
-    function onTransitionEnd() {
-      setIsAnimating(false);
-      lastTranslateRef.current = 0;
-      if (el) el.style.transition = "";
+    } catch (e) {
+      // ignore
     }
-    el.addEventListener("transitionend", onTransitionEnd);
-    return () => el.removeEventListener("transitionend", onTransitionEnd);
-  }, []);
-
-  const applyTranslate = (percent: number, animate = false) => {
+    // Snap track to current index
     const el = trackRef.current;
-    if (!el) return;
-    if (animate && !prefersReducedMotion) {
-      el.style.transition = "transform 260ms ease";
-    } else {
+    const container = containerRef.current;
+    if (!el || !container) return;
+    const width = container.clientWidth || container.getBoundingClientRect().width;
+    const target = -currentIndex * width;
+    if (prefersReducedMotion) {
       el.style.transition = "none";
-    }
-    el.style.transform = `translateX(${percent}%)`;
-  };
-
-  // ensure track reflects currentIndex when not dragging
-  useEffect(() => {
-    const base = -currentIndex * 100;
-    applyTranslate(base, true);
-    // load panel if not already
-    const key = PANELS[currentIndex].key;
-    if (!panelLoading[key] && !panelError[key]) {
-      loadPanel(key);
-    }
-    try {
-      localStorage.setItem("dashboard:lastPanel", String(currentIndex));
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIndex]);
-
-  function onPointerDown(e: React.PointerEvent) {
-    if (isAnimating) return;
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-    startXRef.current = e.clientX;
-    draggingRef.current = true;
-    lastTranslateRef.current = 0;
-  }
-
-  function onPointerMove(e: React.PointerEvent) {
-    if (!draggingRef.current || startXRef.current == null) return;
-    const delta = e.clientX - startXRef.current;
-    const container = containerRef.current;
-    if (!container) return;
-    const width = container.getBoundingClientRect().width || 1;
-    const deltaPercent = (delta / width) * 100;
-    const base = -currentIndex * 100;
-    lastTranslateRef.current = deltaPercent;
-    applyTranslate(base + deltaPercent, false);
-  }
-
-  function onPointerUp(e: React.PointerEvent) {
-    if (!draggingRef.current || startXRef.current == null) return;
-    const delta = e.clientX - startXRef.current;
-    finishDrag(delta);
-    draggingRef.current = false;
-    startXRef.current = null;
-  }
-
-  // touch events fallback
-  function onTouchStart(e: React.TouchEvent) {
-    if (isAnimating) return;
-    startXRef.current = e.touches[0].clientX;
-    draggingRef.current = true;
-    lastTranslateRef.current = 0;
-  }
-  function onTouchMove(e: React.TouchEvent) {
-    if (!draggingRef.current || startXRef.current == null) return;
-    const delta = e.touches[0].clientX - startXRef.current;
-    const container = containerRef.current;
-    if (!container) return;
-    const width = container.getBoundingClientRect().width || 1;
-    const deltaPercent = (delta / width) * 100;
-    const base = -currentIndex * 100;
-    lastTranslateRef.current = deltaPercent;
-    applyTranslate(base + deltaPercent, false);
-  }
-  function onTouchEnd(_e: React.TouchEvent) {
-    if (!draggingRef.current || startXRef.current == null) return;
-    const delta = lastTranslateRef.current; // percent
-    const container = containerRef.current;
-    const width = container ? container.getBoundingClientRect().width : 1;
-    const deltaPx = (delta / 100) * width;
-    finishDrag(deltaPx);
-    draggingRef.current = false;
-    startXRef.current = null;
-  }
-
-  function finishDrag(deltaPx: number) {
-    const threshold = 30; // px
-    if (Math.abs(deltaPx) > threshold) {
-      if (deltaPx < 0) {
-        // swipe left => next
-        goToIndex(currentIndex + 1);
-      } else {
-        // swipe right => prev
-        goToIndex(currentIndex - 1);
-      }
+      el.style.transform = `translateX(${target}px)`;
+      lastTranslate.current = target;
     } else {
-      // snap back
-      applyTranslate(-currentIndex * 100, true);
+      el.style.transition = "transform 320ms ease";
+      setIsAnimating(true);
+      requestAnimationFrame(() => {
+        el.style.transform = `translateX(${target}px)`;
+      });
+    }
+
+    const onT = () => setIsAnimating(false);
+    el.addEventListener("transitionend", onT);
+    return () => el.removeEventListener("transitionend", onT);
+  }, [currentIndex, prefersReducedMotion]);
+
+  // Fake fetch for a panel
+  const fetchPanel = useCallback((key: string) => {
+    setPanelError(prev => ({ ...prev, [key]: false }));
+    setPanelLoading(prev => ({ ...prev, [key]: true }));
+    // simulate network
+    const delay = 600 + Math.floor(Math.random() * 300);
+    const id = setTimeout(() => {
+      // deterministic no-error by default (per plan)
+      setPanelLoading(prev => ({ ...prev, [key]: false }));
+      setPanelError(prev => ({ ...prev, [key]: false }));
+    }, delay);
+    return () => clearTimeout(id);
+  }, []);
+
+  useEffect(() => {
+    // fetch initial panel
+    fetchPanel(panels[currentIndex].key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Gesture handlers
+  useEffect(() => {
+    const container = containerRef.current;
+    const track = trackRef.current;
+    if (!container || !track) return;
+
+    function getWidth() {
+      return container.clientWidth || container.getBoundingClientRect().width || 1;
+    }
+
+    function onPointerDown(e: PointerEvent) {
+      if (isAnimating) return;
+      dragging.current = true;
+      startX.current = e.clientX;
+      track.style.transition = "none";
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+    }
+
+    function onPointerMove(e: PointerEvent) {
+      if (!dragging.current || startX.current == null) return;
+      const dx = e.clientX - startX.current;
+      const width = getWidth();
+      const base = -currentIndex * width;
+      const translate = base + dx;
+      lastTranslate.current = translate;
+      track.style.transform = `translateX(${translate}px)`;
+    }
+
+    function onPointerUp(e: PointerEvent) {
+      if (!dragging.current || startX.current == null) return;
+      dragging.current = false;
+      const dx = e.clientX - startX.current;
+      startX.current = null;
+      const threshold = 50; // px
+      const width = getWidth();
+      let nextIndex = currentIndex;
+      if (dx < -threshold && currentIndex < panels.length - 1) nextIndex = currentIndex + 1;
+      else if (dx > threshold && currentIndex > 0) nextIndex = currentIndex - 1;
+
+      // Trigger fetch if changing
+      if (nextIndex !== currentIndex) {
+        setCurrentIndex(nextIndex);
+        fetchPanel(panels[nextIndex].key);
+      } else {
+        // snap back
+        const target = -currentIndex * width;
+        if (prefersReducedMotion) {
+          track.style.transition = "none";
+          track.style.transform = `translateX(${target}px)`;
+          lastTranslate.current = target;
+        } else {
+          track.style.transition = "transform 260ms ease";
+          setIsAnimating(true);
+          track.style.transform = `translateX(${target}px)`;
+        }
+      }
+    }
+
+    container.addEventListener("pointerdown", onPointerDown);
+    container.addEventListener("pointermove", onPointerMove);
+    container.addEventListener("pointerup", onPointerUp);
+    container.addEventListener("pointercancel", onPointerUp);
+
+    // Touch fallback for environments without pointer events
+    function onTouchStart(ev: TouchEvent) {
+      if (isAnimating) return;
+      const t = ev.touches[0];
+      startX.current = t.clientX;
+      dragging.current = true;
+      track.style.transition = "none";
+    }
+    function onTouchMove(ev: TouchEvent) {
+      if (!dragging.current || startX.current == null) return;
+      const t = ev.touches[0];
+      const dx = t.clientX - startX.current;
+      const base = -currentIndex * getWidth();
+      const translate = base + dx;
+      lastTranslate.current = translate;
+      track.style.transform = `translateX(${translate}px)`;
+    }
+    function onTouchEnd(ev: TouchEvent) {
+      if (!dragging.current) return;
+      dragging.current = false;
+      const changed = ev.changedTouches[0];
+      const dx = changed.clientX - (startX.current ?? 0);
+      startX.current = null;
+      const threshold = 50;
+      if (dx < -threshold && currentIndex < panels.length - 1) {
+        const next = currentIndex + 1;
+        setCurrentIndex(next);
+        fetchPanel(panels[next].key);
+      } else if (dx > threshold && currentIndex > 0) {
+        const next = currentIndex - 1;
+        setCurrentIndex(next);
+        fetchPanel(panels[next].key);
+      } else {
+        const target = -currentIndex * getWidth();
+        if (prefersReducedMotion) {
+          track.style.transition = "none";
+          track.style.transform = `translateX(${target}px)`;
+          lastTranslate.current = target;
+        } else {
+          track.style.transition = "transform 260ms ease";
+          setIsAnimating(true);
+          track.style.transform = `translateX(${target}px)`;
+        }
+      }
+    }
+
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true });
+    container.addEventListener("touchend", onTouchEnd);
+
+    return () => {
+      container.removeEventListener("pointerdown", onPointerDown);
+      container.removeEventListener("pointermove", onPointerMove);
+      container.removeEventListener("pointerup", onPointerUp);
+      container.removeEventListener("pointercancel", onPointerUp);
+      container.removeEventListener("touchstart", onTouchStart as any);
+      container.removeEventListener("touchmove", onTouchMove as any);
+      container.removeEventListener("touchend", onTouchEnd as any);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, isAnimating, fetchPanel, prefersReducedMotion]);
+
+  // Controls
+  function goTo(index: number) {
+    if (index < 0 || index >= panels.length) return;
+    if (isAnimating) return;
+    setCurrentIndex(index);
+    fetchPanel(panels[index].key);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "ArrowLeft") {
+      goTo(Math.max(0, currentIndex - 1));
+    } else if (e.key === "ArrowRight") {
+      goTo(Math.min(panels.length - 1, currentIndex + 1));
     }
   }
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowLeft") {
-      e.preventDefault();
-      goToIndex(currentIndex - 1);
-    } else if (e.key === "ArrowRight") {
-      e.preventDefault();
-      goToIndex(currentIndex + 1);
-    }
-  };
+  // Panel content renderers
+  function renderOverview() {
+    const key = "overview";
+    if (panelLoading[key]) return <div className={styles.loader}>Loading overview…</div>;
+    if (panelError[key])
+      return (
+        <div className={styles.errorBox} role="alert">
+          <div>Failed to load overview.</div>
+          <button className={styles.button} onClick={() => fetchPanel(key)} aria-label="Retry overview">
+            Retry
+          </button>
+        </div>
+      );
+    return (
+      <div>
+        <h3>Welcome{user?.name ? `, ${user.name}` : ""}!</h3>
+        {user?.email && <div style={{ opacity: 0.8 }}>{user.email}</div>}
+        <p style={{ marginTop: 8 }}>You have {user?.notificationCount ?? 0} unread notifications.</p>
+      </div>
+    );
+  }
 
-  const retryPanel = (key: string) => {
-    loadPanel(key);
-  };
+  function renderActivity() {
+    const key = "activity";
+    if (panelLoading[key])
+      return (
+        <div>
+          <div className={styles.skeletonItem} />
+          <div className={styles.skeletonItem} />
+          <div className={styles.skeletonItem} />
+        </div>
+      );
+    if (panelError[key])
+      return (
+        <div className={styles.errorBox} role="alert">
+          <div>Failed to load activity.</div>
+          <button className={styles.button} onClick={() => fetchPanel(key)} aria-label="Retry activity">
+            Retry
+          </button>
+        </div>
+      );
+    return (
+      <ul>
+        <li>Activity item 1</li>
+        <li>Activity item 2</li>
+        <li>Activity item 3</li>
+      </ul>
+    );
+  }
 
-  const saveSettings = async () => {
-    setPanelLoading((s) => ({ ...s, settings: true }));
-    await new Promise((res) => setTimeout(res, 700));
-    setPanelLoading((s) => ({ ...s, settings: false }));
-  };
+  function renderSettings() {
+    return (
+      <div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <label>
+            <input type="checkbox" /> Email notifications
+          </label>
+          <label>
+            <input type="checkbox" /> Show profile publicly
+          </label>
+          <button
+            className={styles.button}
+            onClick={() => {
+              // simulate save
+              const key = "settings-save";
+              setPanelLoading(prev => ({ ...prev, [key]: true }));
+              setTimeout(() => setPanelLoading(prev => ({ ...prev, [key]: false })), 700);
+            }}
+            aria-label="Save settings"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <section
@@ -214,99 +324,39 @@ export default function SwipePanels({ user }: { user: DashboardUser }) {
       ref={containerRef}
       onKeyDown={onKeyDown}
       tabIndex={0}
+      role="region"
       aria-roledescription="carousel"
       aria-label="Dashboard panels"
     >
-      <div
-        className={styles.panelsTrack}
-        ref={trackRef}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        role="group"
-        style={{ display: "flex", width: `${PANELS.length * 100}%` }}
-      >
-        {PANELS.map((p, idx) => {
-          const loading = !!panelLoading[p.key];
-          const error = !!panelError[p.key];
+      <div className={styles.panelsTrack} ref={trackRef} style={{ width: `${panels.length * 100}%`, display: "flex" }}>
+        {panels.map((p, idx) => {
           const active = idx === currentIndex;
           return (
             <article
               key={p.key}
-              className={[styles.panel, active ? styles.panelActive : ""].join(" ")}
-              style={{ width: `${100 / PANELS.length}%` }}
+              className={`${styles.panel} ${active ? styles.panelActive : ""}`}
+              style={{ width: `${100 / panels.length}%`, boxSizing: "border-box" }}
               aria-hidden={!active}
               tabIndex={active ? 0 : -1}
+              aria-roledescription="slide"
+              aria-label={p.title}
+              id={`panel-${p.key}`}
             >
-              <h3>{p.title}</h3>
-
-              {loading && (
-                <div className={styles.loader} aria-live="polite">
-                  <div className={styles.skeletonItem} style={{ height: 12, width: '60%', marginBottom: 8 }} />
-                  <div className={styles.skeletonItem} style={{ height: 10, width: '90%', marginBottom: 6 }} />
-                  <div className={styles.skeletonItem} style={{ height: 10, width: '80%', marginBottom: 6 }} />
-                </div>
-              )}
-
-              {!loading && error && (
-                <div className={styles.errorBox} role="alert">
-                  <div>Failed to load {p.title}.</div>
-                  <button onClick={() => retryPanel(p.key)} className={styles.button} aria-label={`Retry loading ${p.title}`}>
-                    Retry
-                  </button>
-                </div>
-              )}
-
-              {!loading && !error && (
-                <div>
-                  {p.key === 'overview' && (
-                    <div>
-                      <p>Welcome back{user?.name ? `, ${user.name}` : ''}.</p>
-                      {user?.email && <p style={{ color: '#666' }}>{user.email}</p>}
-                      <p>You have {user?.notificationCount ?? 0} unread notifications.</p>
-                    </div>
-                  )}
-
-                  {p.key === 'activity' && (
-                    <div>
-                      <ul style={{ paddingLeft: 18 }}>
-                        <li>Recent activity 1</li>
-                        <li>Recent activity 2</li>
-                        <li>Recent activity 3</li>
-                      </ul>
-                    </div>
-                  )}
-
-                  {p.key === 'settings' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <label>
-                        <input type="checkbox" /> Email notifications
-                      </label>
-                      <label>
-                        <input type="checkbox" /> Show profile
-                      </label>
-                      <div>
-                        <button onClick={saveSettings} className={styles.button} aria-label="Save settings">
-                          {panelLoading['settings'] ? 'Saving...' : 'Save'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              <h2>{p.title}</h2>
+              <div>
+                {p.key === "overview" && renderOverview()}
+                {p.key === "activity" && renderActivity()}
+                {p.key === "settings" && renderSettings()}
+              </div>
             </article>
           );
         })}
       </div>
 
-      <div className={styles.controls}>
+      <div className={styles.controls} aria-hidden={false}>
         <button
           className={styles.chevronButton}
-          onClick={() => goToIndex(currentIndex - 1)}
+          onClick={() => goTo(Math.max(0, currentIndex - 1))}
           aria-label="Previous panel"
           disabled={currentIndex === 0 || isAnimating}
         >
@@ -314,26 +364,26 @@ export default function SwipePanels({ user }: { user: DashboardUser }) {
         </button>
 
         <div className={styles.dots} role="tablist" aria-label="Panel navigation">
-          {PANELS.map((p, idx) => (
+          {panels.map((p, i) => (
             <button
               key={p.key}
               role="tab"
-              aria-selected={idx === currentIndex}
+              aria-selected={i === currentIndex}
               aria-controls={`panel-${p.key}`}
               className={styles.dotButton}
-              onClick={() => goToIndex(idx)}
+              onClick={() => goTo(i)}
               aria-label={`Go to ${p.title}`}
             >
-              {idx === currentIndex ? '●' : '○'}
+              {i === currentIndex ? "●" : "○"}
             </button>
           ))}
         </div>
 
         <button
           className={styles.chevronButton}
-          onClick={() => goToIndex(currentIndex + 1)}
+          onClick={() => goTo(Math.min(panels.length - 1, currentIndex + 1))}
           aria-label="Next panel"
-          disabled={currentIndex === PANELS.length - 1 || isAnimating}
+          disabled={currentIndex === panels.length - 1 || isAnimating}
         >
           ▶
         </button>

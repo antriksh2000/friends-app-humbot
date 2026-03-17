@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 import Header from "./components/Header";
 import SwipePanels from "./components/SwipePanels";
 import styles from "./dashboard.module.css";
@@ -15,52 +15,68 @@ interface DashboardUser {
 
 export default function DashboardPage(): JSX.Element {
   const [user, setUser] = useState<DashboardUser | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem("currentUser");
       if (!raw) {
+        // Not authenticated
         window.location.replace("/login");
         return;
       }
-      const parsed = JSON.parse(raw);
-      setUser(parsed || null);
+      const parsed = JSON.parse(raw) as DashboardUser;
+      setUser(parsed);
     } catch (err) {
-      // parsing error or other localStorage issue: redirect to login
+      // Bad data — redirect to login to be safe
       try {
         localStorage.removeItem("currentUser");
-      } catch {}
+      } catch (e) {
+        // ignore
+      }
       window.location.replace("/login");
+      return;
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  const handleEditProfile = useCallback(() => {
-    // prefer /profile if that exists, otherwise /register as requested
-    window.location.href = "/register";
-  }, []);
+  function handleEditProfile() {
+    // Prefer /profile if exists; fallback to /register which exists in this repo
+    window.location.href = "/profile";
+  }
 
-  const handleNotifications = useCallback(() => {
-    // Navigate to notifications if present else fallback to home
+  function handleNotifications() {
+    // Navigate to notifications if present; otherwise go home
     window.location.href = "/notifications";
-  }, []);
+  }
 
-  const handleLogout = useCallback(() => {
+  function handleLogout() {
     try {
       localStorage.removeItem("currentUser");
-    } catch {}
+    } catch (e) {
+      // ignore
+    }
     window.location.replace("/login");
-  }, []);
+  }
 
   return (
-    <div role="region" aria-label="Dashboard" className={styles.container}>
+    <div className={styles.container} role="region" aria-label="Dashboard">
       <Header
-        user={user || { name: "Anonymous" }}
+        user={user || {}}
         onEdit={handleEditProfile}
         onNotifications={handleNotifications}
         onLogout={handleLogout}
       />
+
       <main style={{ marginTop: 12 }}>
-        <SwipePanels user={user || { name: "Anonymous" }} />
+        {loading ? (
+          <div style={{ padding: 24 }}>Loading...</div>
+        ) : user ? (
+          <SwipePanels user={user} />
+        ) : (
+          <div style={{ padding: 24 }}>Redirecting…</div>
+        )}
       </main>
     </div>
   );
