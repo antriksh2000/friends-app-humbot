@@ -1,15 +1,24 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 
 export default function ResetPage(): JSX.Element {
   const params = useParams();
-  const token = params?.token as string | undefined;
+  const routeToken = params?.token as string | undefined;
+  const [token, setToken] = useState<string>(routeToken || "");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!token && typeof window !== "undefined") {
+      const parts = window.location.pathname.split("/").filter(Boolean);
+      const last = parts[parts.length - 1] || "";
+      setToken(last);
+    }
+  }, [token]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,9 +33,13 @@ export default function ResetPage(): JSX.Element {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, password }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) setMessage(data?.error || "Reset failed");
       else setMessage(data?.message || "Password reset successful. You can log in.");
+      if (res.ok) {
+        setPassword("");
+        setConfirm("");
+      }
     } catch (err) {
       setMessage("Network error");
     } finally {
