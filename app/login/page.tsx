@@ -58,23 +58,80 @@ export default function LoginPage(): JSX.Element {
   }
 
   return (
-    <div style={{ maxWidth: 480, margin: '48px auto', padding: 20 }}>
-      <h2>Sign in</h2>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-        <button type="submit" disabled={loading} style={{ padding: '8px 12px' }}>Sign in</button>
-      </form>
+    <div className="flex items-center justify-center px-4 py-12">
+      <div className="w-full max-w-md bg-white rounded-lg shadow-md p-6">
+        <h2 className="text-2xl font-semibold text-gray-800 mb-4">Sign in</h2>
 
-      <div style={{ margin: '12px 0' }}>
-        <button onClick={handleGoogle} disabled={loading} style={{ padding: '8px 12px' }}>Continue with Google</button>
-      </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label htmlFor="email-input" className="block text-sm font-medium text-gray-700 mb-1">
+              Email
+            </label>
+            <input
+              id="email-input"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              autoComplete="email"
+            />
+          </div>
 
-      {message && <div style={{ marginTop: 12, whiteSpace: 'pre-wrap' }}>{message}</div>}
+          <div>
+            <label htmlFor="password-input" className="block text-sm font-medium text-gray-700 mb-1">
+              Password
+            </label>
+            <input
+              id="password-input"
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              autoComplete="current-password"
+            />
+          </div>
 
-      <div style={{ marginTop: 18 }}>
-        <a href="/register" style={{ marginRight: 12 }}>Register</a>
-        <a href="/forgot">Forgot password</a>
+          <div>
+            <button
+              type="submit"
+              disabled={loading}
+              className={`w-full inline-flex justify-center items-center px-4 py-2 text-white rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${
+                loading ? "bg-indigo-500 cursor-not-allowed opacity-70" : "bg-indigo-600 hover:bg-indigo-700"
+              }`}
+            >
+              {loading ? "Please wait..." : "Sign in"}
+            </button>
+          </div>
+        </form>
+
+        <div className="my-4">
+          <button
+            onClick={handleGoogle}
+            disabled={loading}
+            className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 border rounded-md bg-white hover:bg-gray-50"
+            aria-label="Continue with Google"
+          >
+            {/* Placeholder for an icon area */}
+            <span className="text-sm text-gray-700">{loading ? "Processing..." : "Continue with Google"}</span>
+          </button>
+        </div>
+
+        {message && (
+          <div role="status" className="mt-3 text-sm text-gray-800 whitespace-pre-wrap bg-gray-50 border border-gray-100 rounded-md p-3">
+            {message}
+          </div>
+        )}
+
+        <div className="mt-4 text-sm text-gray-600 flex justify-between">
+          <a href="/register" className="text-indigo-600 hover:underline">
+            Register
+          </a>
+          <a href="/forgot" className="text-indigo-600 hover:underline">
+            Forgot password
+          </a>
+        </div>
       </div>
     </div>
   );
