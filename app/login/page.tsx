@@ -9,6 +9,8 @@ export default function LoginPage(): JSX.Element {
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const returnUrl = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("returnUrl") : null;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMessage(null);
@@ -27,7 +29,39 @@ export default function LoginPage(): JSX.Element {
       if (!res.ok) {
         setMessage(data?.error || "Login failed");
       } else {
-        setMessage("Signed in successfully: " + JSON.stringify(data.user));
+        // Attempt to hydrate canonical user from server
+        try {
+          const curRes = await fetch('/api/auth/current');
+          if (curRes.ok) {
+            const curData = await curRes.json();
+            try {
+              localStorage.setItem('currentUser', JSON.stringify(curData.user));
+            } catch (e) {
+              // ignore storage errors
+            }
+          } else {
+            // fallback to data.user if provided
+            if (data?.user) {
+              try {
+                localStorage.setItem('currentUser', JSON.stringify(data.user));
+              } catch (e) {}
+            }
+            // surface a non-fatal message but still redirect below
+            if (curRes.status === 401) {
+              setMessage('Signed in, but server did not return a session.');
+            }
+          }
+        } catch (err) {
+          if (data?.user) {
+            try {
+              localStorage.setItem('currentUser', JSON.stringify(data.user));
+            } catch (e) {}
+          }
+        }
+
+        // Redirect to safe returnUrl or dashboard
+        const target = returnUrl && returnUrl.startsWith('/') ? returnUrl : '/dashboard';
+        window.location.replace(target);
       }
     } catch (err) {
       setMessage("Network error");
@@ -48,8 +82,29 @@ export default function LoginPage(): JSX.Element {
         body: JSON.stringify({ idToken }),
       });
       const data = await res.json();
-      if (!res.ok) setMessage(data?.error || "Google sign-in failed");
-      else setMessage("Signed in with Google: " + JSON.stringify(data.user || data));
+      if (!res.ok) {
+        setMessage(data?.error || "Google sign-in failed");
+      } else {
+        // hydrate canonical user after server-side Google sign-in
+        try {
+          const curRes = await fetch('/api/auth/current');
+          if (curRes.ok) {
+            const curData = await curRes.json();
+            try {
+              localStorage.setItem('currentUser', JSON.stringify(curData.user));
+            } catch (e) {}
+          } else if (data?.user) {
+            try { localStorage.setItem('currentUser', JSON.stringify(data.user)); } catch (e) {}
+          }
+        } catch (err) {
+          if (data?.user) {
+            try { localStorage.setItem('currentUser', JSON.stringify(data.user)); } catch (e) {}
+          }
+        }
+
+        const target = returnUrl && returnUrl.startsWith('/') ? returnUrl : '/dashboard';
+        window.location.replace(target);
+      }
     } catch (err: any) {
       setMessage(err?.message || String(err));
     } finally {
@@ -125,10 +180,10 @@ export default function LoginPage(): JSX.Element {
         )}
 
         <div className="mt-4 text-sm text-gray-600 flex justify-between">
-          <a href="/register" className="text-indigo-600 hover:underline">
+          <a href={`/register${returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ""}`} className="text-indigo-600 hover:underline">
             Register
           </a>
-          <a href="/forgot" className="text-indigo-600 hover:underline">
+          <a href={`/forgot${returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ""}`} className="text-indigo-600 hover:underline">
             Forgot password
           </a>
         </div>

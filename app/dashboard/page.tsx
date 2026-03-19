@@ -16,29 +16,39 @@ interface DashboardUser {
 export default function DashboardPage(): JSX.Element {
   const [user, setUser] = useState<DashboardUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  async function fetchCurrent() {
+    setLoading(true);
+    setError(null);
     try {
-      const raw = localStorage.getItem("currentUser");
-      if (!raw) {
-        // Not authenticated
-        window.location.replace("/login");
-        return;
+      const res = await fetch('/api/auth/current');
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data.user);
+        try {
+          localStorage.setItem('currentUser', JSON.stringify(data.user));
+        } catch (e) {
+          // ignore storage errors
+        }
+        setLoading(false);
+      } else if (res.status === 401) {
+        // Not authenticated — redirect to login with returnUrl
+        const returnUrl = typeof window !== 'undefined' ? window.location.pathname + window.location.search : '/dashboard';
+        window.location.replace(`/login?returnUrl=${encodeURIComponent(returnUrl)}`);
+      } else {
+        setError('Unable to load dashboard. Try again.');
+        setLoading(false);
       }
-      const parsed = JSON.parse(raw) as DashboardUser;
-      setUser(parsed);
     } catch (err) {
-      // Bad data — redirect to login to be safe
-      try {
-        localStorage.removeItem("currentUser");
-      } catch (e) {
-        // ignore
-      }
-      window.location.replace("/login");
-      return;
-    } finally {
+      setError('Unable to load dashboard. Check your network and try again.');
       setLoading(false);
     }
+  }
+
+  useEffect(() => {
+    fetchCurrent();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleEditProfile() {
@@ -51,13 +61,15 @@ export default function DashboardPage(): JSX.Element {
     window.location.href = "/notifications";
   }
 
-  function handleLogout() {
+  async function handleLogout() {
     try {
-      localStorage.removeItem("currentUser");
+      await fetch('/api/auth/logout', { method: 'POST' });
     } catch (e) {
-      // ignore
+      // ignore network errors — still clear local state
+    } finally {
+      try { localStorage.removeItem('currentUser'); } catch (e) {}
+      window.location.replace('/login');
     }
-    window.location.replace("/login");
   }
 
   return (
@@ -72,6 +84,15 @@ export default function DashboardPage(): JSX.Element {
       <main style={{ marginTop: 12 }}>
         {loading ? (
           <div style={{ padding: 24 }}>Loading...</div>
+        ) : error ? (
+          <div style={{ padding: 24 }}>
+            <div style={{ marginBottom: 12 }} className={styles.errorBox || undefined}>
+              <strong>{error}</strong>
+            </div>
+            <div>
+              <button onClick={fetchCurrent} className="px-3 py-2 bg-indigo-600 text-white rounded-md">Retry</button>
+            </div>
+          </div>
         ) : user ? (
           <SwipePanels user={user} />
         ) : (
