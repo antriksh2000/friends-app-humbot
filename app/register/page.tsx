@@ -8,6 +8,8 @@ export default function RegisterPage(): JSX.Element {
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const returnUrl = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("returnUrl") : null;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMessage(null);
@@ -26,7 +28,25 @@ export default function RegisterPage(): JSX.Element {
       if (!res.ok) {
         setMessage(data?.error || "Registration failed");
       } else {
-        setMessage(data?.message || ("Registered successfully: " + JSON.stringify(data.user || data)));
+        // Hydrate canonical user from server
+        try {
+          const curRes = await fetch('/api/auth/current');
+          if (curRes.ok) {
+            const curData = await curRes.json();
+            try { localStorage.setItem('currentUser', JSON.stringify(curData.user)); } catch (e) {}
+          } else {
+            if (data?.user) {
+              try { localStorage.setItem('currentUser', JSON.stringify(data.user)); } catch (e) {}
+            }
+          }
+        } catch (err) {
+          if (data?.user) {
+            try { localStorage.setItem('currentUser', JSON.stringify(data.user)); } catch (e) {}
+          }
+        }
+
+        const target = returnUrl && returnUrl.startsWith('/') ? returnUrl : '/dashboard';
+        window.location.replace(target);
       }
     } catch (err) {
       setMessage("Network error");
@@ -91,10 +111,10 @@ export default function RegisterPage(): JSX.Element {
         )}
 
         <div className="mt-4 text-sm text-gray-600 flex justify-between">
-          <a href="/login" className="text-indigo-600 hover:underline">
+          <a href={`/login${returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ""}`} className="text-indigo-600 hover:underline">
             Sign in
           </a>
-          <a href="/forgot" className="text-indigo-600 hover:underline">
+          <a href={`/forgot${returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ""}`} className="text-indigo-600 hover:underline">
             Forgot password
           </a>
         </div>

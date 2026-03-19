@@ -14,7 +14,7 @@ export async function POST(req: Request) {
 
     const users = await getUsersCollection();
     const existing = await users.findOne({ email });
-    if (existing) return new Response(JSON.stringify({ error: 'User exists' }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+    if (existing) return new Response(JSON.stringify({ error: 'Email already in use' }), { status: 409, headers: { 'Content-Type': 'application/json' } });
 
     const passwordHash = await hash(password, 10);
     const now = Date.now();
