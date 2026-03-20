@@ -1,0 +1,156 @@
+[
+  {
+    "id": "user_001",
+    "name": "Alex Rivera",
+    "age": 29,
+    "gender": "non-binary",
+    "bio": "Coffee enthusiast, weekend hiker, amateur photographer.",
+    "photos": [
+      "https://example.com/placeholders/alex1.jpg",
+      "https://example.com/placeholders/alex2.jpg"
+    ],
+    "location": { "city": "Seattle", "country": "USA", "lat": 47.6062, "lon": -122.3321 },
+    "interests": ["hiking", "photography", "coffee"],
+    "lastActive": "2026-03-20T09:15:00Z",
+    "verified": false,
+    "preferences": { "seeksAgeRange": [25, 35] }
+  },
+  {
+    "id": "user_002",
+    "name": "Maya Chen",
+    "age": 26,
+    "gender": "female",
+    "bio": "Bookworm and coder. Looking for someone to explore farmer's markets with.",
+    "photos": [
+      "https://example.com/placeholders/maya1.jpg"
+    ],
+    "location": { "city": "San Francisco", "country": "USA", "lat": 37.7749, "lon": -122.4194 },
+    "interests": ["reading", "tech", "food"],
+    "lastActive": "2026-03-20T10:40:00Z",
+    "verified": true,
+    "preferences": { "seeksAgeRange": [24, 32] }
+  },
+  {
+    "id": "user_003",
+    "name": "Luca Bianchi",
+    "age": 34,
+    "gender": "male",
+    "bio": "Chef who loves running and vinyl records.",
+    "photos": [
+      "https://example.com/placeholders/luca1.jpg",
+      "https://example.com/placeholders/luca2.jpg",
+      "https://example.com/placeholders/luca3.jpg"
+    ],
+    "location": { "city": "Rome", "country": "Italy", "lat": 41.9028, "lon": 12.4964 },
+    "interests": ["cooking", "running", "music"],
+    "lastActive": "2026-03-19T21:05:00Z",
+    "verified": false,
+    "preferences": { "seeksAgeRange": [28, 40] }
+  },
+  {
+    "id": "user_004",
+    "name": "Sofia Martinez",
+    "age": 22,
+    "gender": "female",
+    "bio": "Art student, loves sketching and late-night tacos.",
+    "photos": [],
+    "location": { "city": "Mexico City", "country": "Mexico", "lat": 19.4326, "lon": -99.1332 },
+    "interests": ["art", "food", "travel"],
+    "lastActive": "2026-03-20T00:30:00Z",
+    "verified": false,
+    "preferences": { "seeksAgeRange": [20, 28] }
+  },
+  {
+    "id": "user_005",
+    "name": "Jonas Müller",
+    "age": 31,
+    "gender": "male",
+    "bio": "Software dev, board game fan, aspiring gardener.",
+    "photos": [
+      "https://example.com/placeholders/jonas1.jpg"
+    ],
+    "location": { "city": "Berlin", "country": "Germany", "lat": 52.52, "lon": 13.405 },
+    "interests": ["games", "gardening", "coding"],
+    "lastActive": "2026-03-18T16:10:00Z",
+    "verified": true,
+    "preferences": { "seeksAgeRange": [25, 35] }
+  },
+  {
+    "id": "user_006",
+    "name": "Aisha Rahman",
+    "age": 28,
+    "gender": "female",
+    "bio": "Traveler and yoga teacher. Weekend brunch is my love language.",
+    "photos": [
+      "https://example.com/placeholders/aisha1.jpg",
+      "https://example.com/placeholders/aisha2.jpg"
+    ],
+    "location": { "city": "London", "country": "UK", "lat": 51.5074, "lon": -0.1278 },
+    "interests": ["travel", "yoga", "brunch"],
+    "lastActive": "2026-03-20T08:00:00Z",
+    "verified": true,
+    "preferences": { "seeksAgeRange": [27, 36] }
+  },
+  {
+    "id": "user_007",
+    "name": "Samir Patel",
+    "age": 37,
+    "gender": "male",
+    "bio": "Cyclist, foodie, dad-jokes enthusiast.",
+    "photos": [
+      "https://example.com/placeholders/samir1.jpg"
+    ],
+    "location": { "city": "Mumbai", "country": "India", "lat": 19.076, "lon": 72.8777 },
+    "interests": ["cycling", "food", "comedy"],
+    "lastActive": "2026-03-17T12:00:00Z",
+    "verified": false,
+    "preferences": { "seeksAgeRange": [30, 40] }
+  },
+  {
+    "id": "user_008",
+    "name": "Nora O'Connor",
+    "age": 30,
+    "gender": "female",
+    "bio": "Musician and podcast host. Let's swap playlists.",
+    "photos": [
+      "https://example.com/placeholders/nora1.jpg",
+      "https://example.com/placeholders/nora2.jpg"
+    ],
+    "location": { "city": "Dublin", "country": "Ireland", "lat": 53.3498, "lon": -6.2603 },
+    "interests": ["music", "podcasts", "coffee"],
+    "lastActive": "2026-03-20T07:45:00Z",
+    "verified": true,
+    "preferences": { "seeksAgeRange": [27, 33] }
+  },
+  {
+    "id": "user_009",
+    "name": "Diego Silva",
+    "age": 24,
+    "gender": "male",
+    "bio": "Student, amateur photographer, always planning the next road trip.",
+    "photos": [
+      "https://example.com/placeholders/diego1.jpg"
+    ],
+    "location": { "city": "São Paulo", "country": "Brazil", "lat": -23.5505, "lon": -46.6333 },
+    "interests": ["photography", "travel", "cars"],
+    "lastActive": "2026-03-19T14:20:00Z",
+    "verified": false,
+    "preferences": { "seeksAgeRange": [22, 29] }
+  },
+  {
+    "id": "user_010",
+    "name": "Chen Wei",
+    "age": 35,
+    "gender": "non-binary",
+    "bio": "Design lead who enjoys pottery and weekend markets.",
+    "photos": [
+      "https://example.com/placeholders/chen1.jpg",
+      "https://example.com/placeholders/chen2.jpg"
+    ],
+    "location": { "city": "Taipei", "country": "Taiwan", "lat": 25.0330, "lon": 121.5654 },
+    "interests": ["design", "pottery", "markets"],
+    "lastActive": "2026-03-20T06:00:00Z",
+    "verified": true,
+    "preferences": { "seeksAgeRange": [30, 40] }
+  }
+]
