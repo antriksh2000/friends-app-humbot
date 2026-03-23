@@ -2,330 +2,354 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
+type Item = { id: string; title?: string; subtitle?: string; avatarUrl?: string };
+
 export default function SwipeCard(props: {
-  item: { id: string; title?: string; subtitle?: string; avatarUrl?: string };
-  onAction: (payload: {
-    itemId: string;
-    action: "like" | "dislike";
-    method: "swipe" | "keyboard" | "programmatic";
-    velocity?: number;
-    timestamp: number;
-  }) => void;
+  item: Item;
+  onAction: (payload: { itemId: string; action: "like" | "dislike"; method: "swipe" | "keyboard" | "programmatic"; velocity?: number; timestamp: number }) => void;
   disabled?: boolean;
   className?: string;
 }): JSX.Element {
   const { item, onAction, disabled, className } = props;
   const rootRef = useRef<HTMLDivElement | null>(null);
   const startX = useRef<number | null>(null);
-  const lastTranslate = useRef(0);
+  const lastTranslate = useRef<number>(0);
   const dragging = useRef(false);
   const animating = useRef(false);
   const positions = useRef<Array<{ t: number; x: number }>>([]);
-  const [overlay, setOverlay] = useState<{ dir: "like" | "dislike" | null; opacity: number }>({ dir: null, opacity: 0 });
+  const pointerIdRef = useRef<number | null>(null);
+  const calledActionRef = useRef(false);
 
-  useEffect(() => {
-    return () => {
-      // cleanup: release pointer capture if any
-      try {
-        const el = rootRef.current;
-        if (el) {
-          // There's no stable pointerId to release; rely on pointerup/cancel flows.
-        }
-      } catch (e) {
-        // ignore
-      }
-    };
-  }, []);
+  const [, setTick] = useState(0); // force update for overlay render
 
-  function resetTransform(transition = "transform 260ms ease") {
-    const el = rootRef.current;
-    if (!el) return;
-    el.style.transition = transition;
-    el.style.transform = `translateX(0px) rotate(0deg)`;
-    setOverlay({ dir: null, opacity: 0 });
-    lastTranslate.current = 0;
+  // helpers
+  function clamp(n: number, a: number, b: number) {
+    return Math.max(a, Math.min(b, n));
   }
 
-  function applyTranslate(dx: number) {
+  function getWidth() {
+    const el = rootRef.current;
+    if (!el) return 1;
+    return el.clientWidth || el.getBoundingClientRect().width || 1;
+  }
+
+  function applyTransform(dx: number) {
     const el = rootRef.current;
     if (!el) return;
-    const width = el.clientWidth || el.getBoundingClientRect().width || 1;
-    const rot = Math.max(-12, Math.min(12, (dx / width) * 8));
+    const width = getWidth();
+    const rot = clamp((dx / width) * 8, -12, 12);
     el.style.transform = `translateX(${dx}px) rotate(${rot}deg)`;
-    lastTranslate.current = dx;
-    const abs = Math.abs(dx);
-    const opacity = Math.min(1, abs / (width * 0.5));
-    if (dx > 0) setOverlay({ dir: "like", opacity });
-    else if (dx < 0) setOverlay({ dir: "dislike", opacity });
-    else setOverlay({ dir: null, opacity: 0 });
+    el.style.willChange = "transform";
+  }
+
+  function setTransition(v: string) {
+    const el = rootRef.current;
+    if (!el) return;
+    el.style.transition = v;
+  }
+
+  function resetOverlays() {
+    // trigger re-render so overlay styles update
+    setTick(t => t + 1);
   }
 
   function computeVelocity(): number | undefined {
-    const list = positions.current;
-    if (list.length < 2) return undefined;
+    const pos = positions.current;
+    if (pos.length < 2) return undefined;
     const now = performance.now();
-    // use last 100ms window
-    const windowStart = now - 100;
-    let start = list[0];
-    for (let i = list.length - 1; i >= 0; i--) {
-      if (list[i].t <= windowStart) {
-        start = list[i];
-        break;
-      }
-    }
-    const last = list[list.length - 1];
-    const dt = last.t - start.t;
+    // take last 100ms window
+    const cutoff = now - 100;
+    let first = pos.find(p => p.t >= cutoff) ?? pos[0];
+    const last = pos[pos.length - 1];
+    const dt = (last.t - first.t) / 1000; // seconds
     if (dt <= 0) return undefined;
-    const dx = last.x - start.x;
-    const vel = (dx / dt) * 1000; // px/s
-    return vel;
+    const dx = last.x - first.x;
+    return dx / dt; // px/s
   }
 
-  function confirmDismiss(direction: "like" | "dislike", method: "swipe" | "keyboard" | "programmatic", velocity?: number) {
-    if (animating.current) return;
-    const el = rootRef.current;
-    if (!el) return;
-    animating.current = true;
-    el.style.transition = "transform 260ms ease-out";
-    const w = el.clientWidth || el.getBoundingClientRect().width || 320;
-    const sign = direction === "like" ? 1 : -1;
-    const tx = sign * w * 1.5;
-    const rot = sign * 24;
-    // animate off-screen
-    requestAnimationFrame(() => {
-      el.style.transform = `translateX(${tx}px) rotate(${rot}deg)`;
-      setOverlay(prev => ({ dir: direction, opacity: 1 }));
-    });
-
-    const onTransitionEnd = (ev: TransitionEvent) => {
-      if (ev.propertyName !== "transform") return;
-      el.removeEventListener("transitionend", onTransitionEnd);
-      animating.current = false;
-      // emit action
-      try {
-        onAction({ itemId: item.id, action: direction, method, velocity, timestamp: Date.now() });
-      } catch (e) {
-        // swallow
-      }
-    };
-
-    el.addEventListener("transitionend", onTransitionEnd);
-  }
-
-  function handlePointerDown(e: React.PointerEvent) {
+  // pointer / touch handlers
+  function onPointerDown(e: React.PointerEvent) {
     if (animating.current || disabled) return;
-    // ignore non-primary buttons
-    if ((e as any).button && (e as any).button !== 0) return;
-    // multitouch: if touch and more than 1 pointer, ignore (can't easily detect here). We'll trust pointerType.
-    try {
-      (e.currentTarget as Element).setPointerCapture(e.pointerId);
-    } catch (err) {
-      // ignore
-    }
+    if (e.pointerType === "touch" && e.isPrimary === false) return; // multitouch ignore
     dragging.current = true;
     startX.current = e.clientX;
     positions.current = [{ t: performance.now(), x: e.clientX }];
-    const el = rootRef.current;
-    if (el) el.style.transition = "none";
-  }
-
-  function handlePointerMove(e: React.PointerEvent) {
-    if (!dragging.current || startX.current == null) return;
-    const clientX = e.clientX;
-    const dx = clientX - startX.current;
-    positions.current.push({ t: performance.now(), x: clientX });
-    if (positions.current.length > 6) positions.current.shift();
-    applyTranslate(dx);
-  }
-
-  function handlePointerUp(e: React.PointerEvent) {
-    if (!dragging.current) return;
-    dragging.current = false;
+    lastTranslate.current = 0;
+    setTransition("none");
     try {
-      (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+      pointerIdRef.current = e.pointerId;
     } catch (err) {
       // ignore
     }
-    const el = rootRef.current;
-    if (!el) return;
-    const dx = lastTranslate.current;
-    const vel = computeVelocity();
-    const width = el.clientWidth || el.getBoundingClientRect().width || 1;
-    const displacementThreshold = 0.3 * width;
-    const velocityThreshold = 1000; // px/s
-    const dir = dx > 0 ? "like" : "dislike";
-    const should = Math.abs(dx) > displacementThreshold || (typeof vel === "number" && Math.abs(vel) > velocityThreshold && Math.sign(vel) === Math.sign(dx));
-    if (should) {
-      confirmDismiss(dir, "swipe", vel === undefined ? undefined : Math.abs(vel));
-    } else {
-      resetTransform();
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    if (!dragging.current || startX.current == null) return;
+    const dx = e.clientX - startX.current;
+    lastTranslate.current = dx;
+    const now = performance.now();
+    positions.current.push({ t: now, x: e.clientX });
+    if (positions.current.length > 6) positions.current.shift();
+    applyTransform(dx);
+    resetOverlays();
+  }
+
+  function finalizeAction(action: "like" | "dislike", method: "swipe" | "keyboard" | "programmatic", velocity?: number) {
+    if (calledActionRef.current) return;
+    calledActionRef.current = true;
+    const payload = {
+      itemId: item.id,
+      action,
+      method,
+      velocity,
+      timestamp: Date.now(),
+    };
+    try {
+      onAction(payload);
+    } catch (err) {
+      // swallow
     }
   }
 
-  function handlePointerCancel(_e: React.PointerEvent) {
+  function onPointerUp(e?: React.PointerEvent | PointerEvent | TouchEvent) {
+    if (!dragging.current) return;
     dragging.current = false;
-    resetTransform();
+    const dx = lastTranslate.current;
+    const velocity = computeVelocity();
+    const el = rootRef.current;
+    if (!el) return;
+    const width = getWidth();
+    const displacementThreshold = 0.3 * width;
+    const velocityThreshold = 1000; // px/s
+
+    const sign = dx === 0 ? 0 : dx > 0 ? 1 : -1;
+    const meetsDisplacement = Math.abs(dx) > displacementThreshold;
+    const meetsVelocity = velocity !== undefined && Math.abs(velocity) > velocityThreshold && Math.sign(velocity) === Math.sign(dx || velocity);
+
+    // release pointer capture
+    try {
+      if (pointerIdRef.current != null) {
+        el.releasePointerCapture?.(pointerIdRef.current);
+      }
+    } catch (err) {
+      // ignore
+    }
+    pointerIdRef.current = null;
+
+    if (meetsDisplacement || meetsVelocity) {
+      // confirm and animate off-screen
+      animating.current = true;
+      setTransition("transform 260ms ease-out");
+      const targetX = (sign || 1) * width * 1.5;
+      const rot = (sign || 1) * 24;
+      el.style.transform = `translateX(${targetX}px) rotate(${rot}deg)`;
+
+      const onT = (ev: TransitionEvent) => {
+        if (ev.propertyName !== "transform") return;
+        el.removeEventListener("transitionend", onT);
+        // call action after animation
+        finalizeAction(sign > 0 ? "like" : "dislike", "swipe", velocity === undefined ? undefined : Math.round(velocity));
+        // let parent remove the element; in case it doesn't, reset animating so interactions may resume
+        animating.current = false;
+      };
+      el.addEventListener("transitionend", onT);
+    } else {
+      // snap back
+      setTransition("transform 260ms ease");
+      el.style.transform = "none";
+      const onT = (ev: TransitionEvent) => {
+        if (ev.propertyName !== "transform") return;
+        el.removeEventListener("transitionend", onT);
+        setTransition("none");
+        resetOverlays();
+      };
+      el.addEventListener("transitionend", onT);
+    }
   }
 
-  // Touch fallback (in addition to pointer events)
-  function handleTouchStart(e: React.TouchEvent) {
+  // touch fallback
+  function onTouchStart(ev: React.TouchEvent) {
     if (animating.current || disabled) return;
-    const t = e.touches[0];
-    if (!t) return;
+    if (ev.touches.length > 1) return;
+    const t = ev.touches[0];
     dragging.current = true;
     startX.current = t.clientX;
     positions.current = [{ t: performance.now(), x: t.clientX }];
-    const el = rootRef.current;
-    if (el) el.style.transition = "none";
+    lastTranslate.current = 0;
+    setTransition("none");
   }
-  function handleTouchMove(e: React.TouchEvent) {
+  function onTouchMove(ev: React.TouchEvent) {
     if (!dragging.current || startX.current == null) return;
-    const t = e.touches[0];
-    if (!t) return;
+    const t = ev.touches[0];
     const dx = t.clientX - startX.current;
+    lastTranslate.current = dx;
     positions.current.push({ t: performance.now(), x: t.clientX });
     if (positions.current.length > 6) positions.current.shift();
-    applyTranslate(dx);
+    applyTransform(dx);
+    resetOverlays();
   }
-  function handleTouchEnd(e: React.TouchEvent) {
+  function onTouchEnd(ev: React.TouchEvent) {
     if (!dragging.current) return;
-    dragging.current = false;
-    const changed = e.changedTouches[0];
-    const dx = changed ? changed.clientX - (startX.current ?? 0) : lastTranslate.current;
-    const vel = computeVelocity();
-    const el = rootRef.current;
-    if (!el) return;
-    const width = el.clientWidth || el.getBoundingClientRect().width || 1;
-    const displacementThreshold = 0.3 * width;
-    const velocityThreshold = 1000;
-    const dir = dx > 0 ? "like" : "dislike";
-    const should = Math.abs(dx) > displacementThreshold || (typeof vel === "number" && Math.abs(vel) > velocityThreshold && Math.sign(vel) === Math.sign(dx));
-    if (should) {
-      confirmDismiss(dir, "swipe", vel === undefined ? undefined : Math.abs(vel));
-    } else {
-      resetTransform();
-    }
+    const t = ev.changedTouches[0];
+    lastTranslate.current = (t?.clientX ?? 0) - (startX.current ?? 0);
+    onPointerUp();
+    startX.current = null;
   }
 
-  function handleKeyDown(e: React.KeyboardEvent) {
+  // keyboard handlers
+  function onKeyDown(e: React.KeyboardEvent) {
     if (disabled || animating.current) return;
     if (e.key === "ArrowRight" || e.key === "Enter") {
-      // programmatic right
-      confirmDismiss("like", "keyboard", undefined);
-      e.preventDefault();
+      // programmatic confirm to the right
+      animating.current = true;
+      const el = rootRef.current;
+      if (!el) return;
+      setTransition("transform 260ms ease-out");
+      const width = getWidth();
+      el.style.transform = `translateX(${width * 1.5}px) rotate(24deg)`;
+      const onT = (ev: TransitionEvent) => {
+        if (ev.propertyName !== "transform") return;
+        el.removeEventListener("transitionend", onT);
+        finalizeAction("like", "keyboard", undefined);
+        animating.current = false;
+      };
+      el.addEventListener("transitionend", onT);
     } else if (e.key === "ArrowLeft") {
-      confirmDismiss("dislike", "keyboard", undefined);
-      e.preventDefault();
+      animating.current = true;
+      const el = rootRef.current;
+      if (!el) return;
+      setTransition("transform 260ms ease-out");
+      const width = getWidth();
+      el.style.transform = `translateX(${ -width * 1.5 }px) rotate(-24deg)`;
+      const onT = (ev: TransitionEvent) => {
+        if (ev.propertyName !== "transform") return;
+        el.removeEventListener("transitionend", onT);
+        finalizeAction("dislike", "keyboard", undefined);
+        animating.current = false;
+      };
+      el.addEventListener("transitionend", onT);
     }
   }
 
-  // small inline styles
-  const containerStyle: React.CSSProperties = {
-    width: 320,
-    maxWidth: "90vw",
-    height: 420,
-    maxHeight: "80vh",
-    background: "#fff",
-    borderRadius: 12,
-    boxShadow: "0 10px 30px rgba(0,0,0,0.12)",
-    position: "relative",
-    overflow: "hidden",
-    touchAction: "pan-y",
-    userSelect: "none",
-    WebkitUserSelect: "none",
-    display: "flex",
-    flexDirection: "column",
-  };
+  useEffect(() => {
+    // cleanup on unmount
+    return () => {
+      const el = rootRef.current;
+      if (el && pointerIdRef.current != null) {
+        try {
+          el.releasePointerCapture?.(pointerIdRef.current);
+        } catch (err) {
+          // ignore
+        }
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const avatarStyle: React.CSSProperties = {
-    width: 72,
-    height: 72,
-    borderRadius: 10,
-    background: "#eef2ff",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 28,
-    marginRight: 12,
-    overflow: "hidden",
-  };
+  // overlay opacities derived from lastTranslate
+  const dx = lastTranslate.current;
+  const width = getWidth();
+  const overlayOpacity = clamp(Math.min(1, Math.abs(dx) / (width * 0.5)), 0, 1);
 
-  const overlayCommon: React.CSSProperties = {
-    position: "absolute",
-    top: 16,
-    padding: "8px 12px",
-    borderRadius: 8,
-    color: "#fff",
-    fontWeight: 600,
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    transform: "translateZ(0)",
-  };
+  const likeVisible = dx > 0 && overlayOpacity > 0;
+  const dislikeVisible = dx < 0 && overlayOpacity > 0;
 
   return (
     <div
       ref={rootRef}
-      role="article"
+      role="group"
       aria-roledescription="swipe card"
-      aria-label={`${item.title || "Card"}. Swipe right to like, left to dislike.`}
+      aria-label={`${item.title ?? "Card"}${item.subtitle ? ", " + item.subtitle : ""}. Swipe right to like, left to dislike.`}
       tabIndex={0}
-      onKeyDown={handleKeyDown}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
+      onKeyDown={onKeyDown}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={() => onPointerUp()}
+      onPointerCancel={() => onPointerUp()}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
       className={className}
-      style={{ ...containerStyle, outline: "none" }}
-      aria-disabled={disabled || undefined}
+      style={{
+        width: 320,
+        maxWidth: "90vw",
+        height: 420,
+        boxSizing: "border-box",
+        borderRadius: 12,
+        background: "#fff",
+        boxShadow: "0 8px 18px rgba(15,23,42,0.08)",
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+        padding: 16,
+        userSelect: "none",
+        touchAction: "pan-y",
+        margin: "0 auto",
+      }}
+      aria-hidden={disabled}
     >
-      {/* overlays */}
-      <div
-        aria-hidden
-        style={{
-          ...overlayCommon,
-          left: 16,
-          background: "rgba(34,197,94,0.9)",
-          opacity: overlay.dir === "like" ? overlay.opacity : 0,
-        }}
-      >
-        <span style={{ fontSize: 18 }}>👍</span>
-        <span style={{ fontSize: 14 }}>Like</span>
-      </div>
-
-      <div
-        aria-hidden
-        style={{
-          ...overlayCommon,
-          right: 16,
-          background: "rgba(239,68,68,0.9)",
-          opacity: overlay.dir === "dislike" ? overlay.opacity : 0,
-        }}
-      >
-        <span style={{ fontSize: 18 }}>👎</span>
-        <span style={{ fontSize: 14 }}>Nope</span>
-      </div>
-
-      <div style={{ padding: 18, display: "flex", gap: 12, alignItems: "center" }}>
-        <div style={avatarStyle}>
+      {/* content */}
+      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <div style={{ width: 64, height: 64, borderRadius: 8, overflow: "hidden", background: "#f3f4f6", flex: "0 0 64px" }}>
           {item.avatarUrl ? (
             // eslint-disable-next-line jsx-a11y/img-redundant-alt
-            <img src={item.avatarUrl} alt={`${item.title || "avatar"}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <img src={item.avatarUrl} alt={`${item.title ?? "Avatar"} avatar`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           ) : (
-            <div style={{ fontSize: 22, color: "#374151" }}>{(item.title || "?").charAt(0).toUpperCase()}</div>
+            <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#111" }} aria-hidden>
+              📷
+            </div>
           )}
         </div>
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>{item.title || "Untitled"}</div>
-          {item.subtitle ? <div style={{ color: "#6b7280", marginTop: 4 }}>{item.subtitle}</div> : null}
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700 }}>{item.title ?? "Untitled"}</div>
+          {item.subtitle ? <div style={{ marginTop: 6, color: "#6b7280" }}>{item.subtitle}</div> : null}
         </div>
       </div>
 
-      <div style={{ padding: 18, marginTop: "auto", color: "#6b7280" }}>
-        <div style={{ fontSize: 13 }}>Tip: drag left/right or use ← → keys to act.</div>
+      <div style={{ marginTop: 12, color: "#374151", flex: 1 }}>
+        <p style={{ margin: 0, opacity: 0.85 }}>This is a demo swipe card. Use drag, touch, or arrow keys to interact.</p>
+      </div>
+
+      {/* overlays */}
+      <div
+        aria-hidden={!likeVisible}
+        style={{
+          position: "absolute",
+          left: 12,
+          top: 12,
+          padding: "8px 12px",
+          borderRadius: 8,
+          background: `rgba(16,185,129,${likeVisible ? overlayOpacity : 0})`,
+          color: "#fff",
+          fontWeight: 700,
+          display: likeVisible ? "flex" : "none",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <span aria-hidden>👍</span>
+        <span style={{ textShadow: "0 1px 0 rgba(0,0,0,0.12)" }}>Like</span>
+      </div>
+
+      <div
+        aria-hidden={!dislikeVisible}
+        style={{
+          position: "absolute",
+          right: 12,
+          top: 12,
+          padding: "8px 12px",
+          borderRadius: 8,
+          background: `rgba(239,68,68,${dislikeVisible ? overlayOpacity : 0})`,
+          color: "#fff",
+          fontWeight: 700,
+          display: dislikeVisible ? "flex" : "none",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <span aria-hidden>👎</span>
+        <span style={{ textShadow: "0 1px 0 rgba(0,0,0,0.12)" }}>Nope</span>
       </div>
     </div>
   );
